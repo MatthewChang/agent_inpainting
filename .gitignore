@@ -1,0 +1,8 @@
+__pycache__/
+models/*
+*.egg-info/
+src/
+lightning_logs/*
+./data/*
+output.png
+100doh/*

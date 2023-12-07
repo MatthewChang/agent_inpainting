@@ -1,0 +1,128 @@
+initializer:
+  target: ldm.initializers.inpainting.InpaintingInit
+  params:
+    weights: models/ldm/inpainting_big/last.ckpt
+    init3d: true
+    insert_out_layer: True
+model:
+  base_learning_rate: 1.0e-06
+  target: ldm.models.diffusion.latent_diffusion.LatentDiffusion
+  params:
+    linear_start: 0.0015
+    linear_end: 0.0205
+    log_every_t: 100
+    timesteps: 1000
+    loss_type: l1
+    first_stage_key: image
+    image_size: 64
+    channels: 3
+    concat_mode: true
+    conditioning_key: multi_concat
+    monitor: val/loss_ema
+    unet_config:
+      target: ldm.modules.diffusionmodules.openaimodel.UNetModel
+      params:
+        dims: 3
+        dim_join: 
+          type: 'conv'
+          num: 4
+        image_size: 64
+        in_channels: 7
+        out_channels: 3
+        model_channels: 256
+        attention_resolutions:
+        - 8
+        - 4
+        - 2
+        num_res_blocks: 2
+        # with ths config the middle bottleneck size is b x 1024 x 8 x 8
+        channel_mult:
+        - 1
+        - 2
+        - 3
+        - 4
+        num_heads: 8
+        resblock_updown: true
+    first_stage_config:
+      target: ldm.models.autoencoder.VQModelInterface
+      params:
+        embed_dim: 3
+        n_embed: 8192
+        monitor: val/rec_loss
+        ddconfig:
+          attn_type: none
+          double_z: false
+          z_channels: 3
+          resolution: 256
+          in_channels: 3
+          out_ch: 3
+          ch: 128
+          ch_mult:
+          - 1
+          - 2
+          - 4
+          num_res_blocks: 2
+          attn_resolutions: []
+          dropout: 0.0
+        lossconfig:
+          target: ldm.modules.losses.contperceptual.DummyLoss
+    cond_stage_key: __batch__
+    cond_stage_config:
+      target: ldm.models.cond.Inpainting3d
+      with_first_stage: True
+      params:
+        multi_img: True 
+    log_config:
+      target: ldm.models.diffusion.logging.InpaintLog3d
+data_shared_params: &data_shared_params
+  epic_hdf5_root: ${oc.env:EPIC_ROOT}
+  data_root: ${oc.env:DATA_LOCATION}
+  frame_skip: 36
+  num_frames: 4
+  size: 256
+  mask_size: [64,64]
+  hand_mask_rate: 1
+  random_mask_rate: 0.5
+  same_random_mask_rate: 0.25
+  with_hand_bg: True
+  no_hand_mult: 8
+  stack_frames: False
+  background_config:
+    target: ldm.data.ego4d_backgrounds.Backgrounds
+    params:
+      files: ${oc.env:EGO4D_LOCATION}
+      frame_skip: 1
+      num_frames: 4
+      size: 256
+data:
+  target: main.DataModuleFromConfig
+  params:
+    batch_size: 48
+    num_workers: 10
+    wrap: false
+    train:
+      target: ldm.data.no_hands.NoHands
+      params:
+        visor_files: data/no_hands_train.txt
+        <<: *data_shared_params
+    validation:
+      target: ldm.data.no_hands.NoHands
+      params:
+        visor_files: data/no_hands_val.txt
+        <<: *data_shared_params
+    test:
+      target: ldm.data.no_hands.NoHands
+      params:
+        <<: *data_shared_params
+        visor_files: data/no_hands_val.txt
+        predict: True
+lightning:
+  callbacks:
+    image_logger:
+      target: main.ImageLogger
+      params:
+        batch_frequency: 10000
+        max_images: 8
+        increase_log_steps: False
+  trainer:
+    benchmark: True
